@@ -2,10 +2,10 @@ const {Markup} = require("telegraf");
 
 const groupBy = (arr) => {
     const n = arr.length % 3 === 1 ? 4 : 3
-    const x = arr.map(({name, todayTotal}) =>
+    const x = arr.map(({name}) =>
         Markup.button.callback(
-            `${name} ${todayTotal!==0?`(${todayTotal})`:``}`,
-            `toggle ${name}`
+            `${name}`,
+            `toggle ${name.split(' ').join('_')}`
         )
     )
     return Markup.inlineKeyboard([
@@ -13,7 +13,7 @@ const groupBy = (arr) => {
         ...x.reduce((r, e, i) =>
                 (i % n ? r[r.length - 1].push(e) : r.push([e])) && r
             , []),
-        // [Markup.button.callback('Qo\'shish', 'addBill')]
+        [Markup.button.callback('Cancel', 'cancel_order')]
     ])
 }
 
