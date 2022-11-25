@@ -1,7 +1,6 @@
 require('dotenv').config()
 const mongoose = require('mongoose');
-const {Telegraf, Markup} = require('telegraf')
-const {groupBy} = require("./constants");
+const {Telegraf} = require('telegraf')
 const {Order, Meal, User} = require('./models');
 const cron = require('node-cron')
 
@@ -10,9 +9,10 @@ const bot = new Telegraf(process.env.BOT_TOKEN)
 const isAdmin = (ctx) => {
     return ctx.update.message.from.id.toString() === process.env.DEV_ID.toString()
 }
-const sendMenu = async (ctx, edit = true) => {
+const sendMenu = async (ctx) => {
     const menu = await Meal.find()
-    return ctx.replyWithPoll(
+    return ctx.telegram.sendPoll(
+        process.env.GROUP_ID,
         'Ovqat tanlaymiz',
         menu.map(({name}) => name.split('_').join(' ')),
         {is_anonymous: false}
@@ -58,7 +58,7 @@ const stopMenu = async (ctx) => {
 }
 const notifyUsers = async (ctx) => {
     const today = new Date().toDateString()
-    const allUsers = await User.find({tgId: {$ne: 'bread'}})
+    const allUsers = await User.find()
     const orders = [...await Order.find({date: today})].map(el => el.user)
     const didnt = allUsers.filter(el => !orders.includes(el.tgId))
 
@@ -82,13 +82,14 @@ bot.start((ctx) => {
     )
 })
 bot.on('poll_answer', async (ctx) => {
-    console.log(ctx.update.poll_answer)
-    const menu = await Meal.find()
     const userId = ctx.update.poll_answer.user.id
     const user = await User.find({tgId: userId})
     if (!user) return
+
+    const menu = await Meal.find()
     const today = new Date().toDateString()
     const ordered = await Order.findOne({date: today, user: userId});
+
     if (!ordered) {
         await Order({
             date: today,
@@ -103,9 +104,9 @@ bot.on('poll_answer', async (ctx) => {
     } else if (ctx.update.poll_answer.option_ids.length === 0) {
         await Order.deleteOne({date: today, user: userId});
     }
-    const x = await Order.find()
-    return ctx.telegram.sendMessage('740160989',
-        x.map(({user, order, date}) => `${user}, ${order}, ${date}`).join('\n'))
+    /*  const x = await Order.find()
+      return ctx.telegram.sendMessage('740160989',
+          x.map(({user, order, date}) => `${user}, ${order}, ${date}`).join('\n'))*/
 })
 bot.command('menu', async (ctx) => {
     if (isAdmin(ctx)) {
@@ -113,7 +114,9 @@ bot.command('menu', async (ctx) => {
     } else ctx.reply('you can`t do it')
 })
 bot.command('stop', async (ctx) => {
-    await stopMenu(ctx, false)
+    if (isAdmin(ctx)) {
+        await stopMenu(ctx, false)
+    } else ctx.reply('you can`t do it')
 })
 bot.command('notify', async (ctx) => {
     await notifyUsers(ctx, false)
@@ -121,10 +124,9 @@ bot.command('notify', async (ctx) => {
 bot.command('today', async (ctx) => {
     const today = new Date().toDateString()
     const x = await Order.find({date: today})
-    return ctx.replyWithHTML(x.map(({
-                                        user,
-                                        order
-                                    }) => `<a href="tg://user?id=${user}">${user}</a> - ${order}`).join('\n'))
+    return ctx.replyWithHTML(
+        'today:\n\n'+x.map(({user, order}) =>
+            `<a href="tg://user?id=${user}">${user}</a> - ${order}`).join('\n'))
 })
 bot.hears(/Menga ([\w'-]+) (.+)/, async (ctx) => {
     const userId = ctx.update.message.from.id
@@ -179,20 +181,6 @@ const start = async () => {
         await mongoose.connect(process.env.MONGO_URL);
         console.log('database connected');
         await bot.launch().then(() => console.log('bot started'))
-        /* const newU = await User.insertMany([
-             {name: 'Kamol aka', tgId: '315143789'},
-             {name: 'Bahtiyor aka', tgId: '1369989587'},
-             {name: 'Sulton aka', tgId: '574307557'},
-             {name: 'Bahrom aka', tgId: '1198589167'},
-             {name: 'Sardor aka', tgId: '49957246'},
-             {name: 'Bashar aka', tgId: '1341863962'},
-             {name: 'Ali', tgId: '385117509'},
-             {name: 'Mardonbek', tgId: '1435832975'},
-             {name: 'Jasur', tgId: '184565798'},
-             {name: 'Ravshanbek', tgId: '740160989'},
-         ])
-
-         console.log(newU)*/
     } catch (e) {
         console.log(e)
     }
@@ -201,73 +189,4 @@ start();
 
 process.once('SIGINT', () => bot.stop('SIGINT'))
 process.once('SIGTERM', () => bot.stop('SIGTERM'))
-/*
 
-const sendMenu2 = async (ctx, edit = true) => {
-    const menu = await Meal.find()
-    const today = new Date().toDateString()
-    const orders = await Order.aggregate([
-        {
-            $match: {"date": today}
-        },
-        {
-            $group: {
-                _id: "$order",
-                name: {"$first": "$order"},
-                todayTotal: {$sum: 1}
-            }
-        }
-    ]);
-    if (edit) {
-        return ctx.editMessageText(
-            `Ovqat tanlaymiz\n\n${orders.length > 0 ? 'Bugunga hozircha' : ''}
-             \n${orders.map(({name, todayTotal}) => `${name}: ${todayTotal}ta\n`).join('')}`,
-            groupBy(menu)
-        )
-
-    } else return ctx.telegram.sendMessage(
-        process.env.GROUP_ID,
-        // return ctx.replyWithHTML(
-        `Ovqat tanlaymiz\n\n${orders.length > 0 ? 'Bugunga hozircha' : ''}
-             \n${orders.map(({name, todayTotal}) => `${name}: ${todayTotal}ta\n`).join('')}`,
-        groupBy(menu)
-    )
-}
-*/
-
-/*bot.action(/toggle ([\w'-]+)/, async (ctx) => {
-    const userId = ctx.update.callback_query.from.id
-    const today = new Date().toDateString()
-    const didHeOrder = await Order.findOne({date: today, user: userId});
-    if (!didHeOrder) {
-        await Order({
-            date: today,
-            order: ctx.match[1].split('_').join(' '),
-            user: userId
-        }).save();
-    } else {
-        await Order.updateOne({date: today, user: userId}, {order: ctx.match[1].split('_').join(' ')})
-    }
-    if (didHeOrder?.order !== ctx.match[1].split('_').join(' '))
-        await sendMenu(ctx)
-    return ctx.answerCbQuery('test')
-})*/
-/*bot.action('cancel_order', async (ctx) => {
-    // console.log('user ', ctx.update.callback_query.from.id)
-    const today = new Date().toDateString()
-    await Order.deleteOne({date: today, user: ctx.update.callback_query.from.id});
-    await sendMenu(ctx)
-    return ctx.answerCbQuery()
-})*/
-/*bot.hears(/addmeal ([\w'-]+)/, async (ctx) => {
-    if (isAdmin(ctx)) {
-        const newMeal = await new Meal({name: ctx.match[1]}).save()
-        return ctx.replyWithHTML(newMeal)
-    } else ctx.reply('you can`t do it')
-})*/
-/*
-bot.hears('stop cron', async (ctx) => {
-    if (isAdmin(ctx)) {
-        return ctx.reply('ok')
-    } else ctx.reply('you can`t do it')
-})*/
