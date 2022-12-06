@@ -1,7 +1,7 @@
 require('dotenv').config()
 const mongoose = require('mongoose');
 const {Telegraf} = require('telegraf')
-const {Order, Meal, User} = require('./models');
+const {Order, Meal, User, Addon} = require('./models');
 const cron = require('node-cron')
 
 const bot = new Telegraf(process.env.BOT_TOKEN)
@@ -21,7 +21,8 @@ const sendMenu = async (ctx) => {
 const stopMenu = async (ctx) => {
     const today = new Date().toDateString()
 
-    const allUsers = await User.find({tgId: {$ne: 'bread'}})
+    const allUsers = await User.find()
+    const addons = await Addon.find({count: {$ne: 0}})
     const orderedUsers = [...await Order.find({date: today})].map(el => el.user)
     const didnt = allUsers.filter(el => !orderedUsers.includes(el.tgId))
 
@@ -42,7 +43,7 @@ const stopMenu = async (ctx) => {
             $group: {
                 _id: "$order",
                 name: {"$first": "$order"},
-                todayTotal: {$sum: 1}
+                count: {$sum: 1}
             }
         }
     ]);
@@ -51,8 +52,8 @@ const stopMenu = async (ctx) => {
         // return ctx.replyWithHTML(
         'Assalom alaykum <a href="tg://user?id=' + process.env.COOK_ID + '">' + process.env.COOK_NAME + '</a>' +
         '\n\nBugunga\n\n' +
-        orders.map(({name, todayTotal}) =>
-            `${name}: ${todayTotal} ta`).join('\n'),
+        [...orders, ...addons].map(({name, count}) =>
+            `${name}: ${count} ta`).join('\n'),
         {parse_mode: "HTML"}
     )
 }
@@ -125,23 +126,24 @@ bot.command('today', async (ctx) => {
     const today = new Date().toDateString()
     const x = await Order.find({date: today})
     return ctx.replyWithHTML(
-        'today:\n\n'+x.map(({user, order}) =>
-            `<a href="tg://user?id=${user}">${user}</a> - ${order}`).join('\n'))
+        'today:\n\n' + x.map(({user, order}, i) =>
+            `${i + 1}.  <a href="tg://user?id=${user}">${user}</a> - ${order}`).join('\n'))
 })
-bot.hears(/Menga ([\w'-]+) (.+)/, async (ctx) => {
+bot.hears(/menga ([\w'-]+) (.+)/i, async (ctx) => {
+    console.log(ctx.match)
     const userId = ctx.update.message.from.id
-    const meal = ctx.match[2]
+    const meal = ctx.match[2].toLowerCase().split('').map((ch, id) => !id ? ch.toUpperCase() : ch).join('')
     const menu = await Meal.find()
 
     if (ctx.match[1] !== 'default' && ctx.match[1] !== 'bugunga' && ctx.match[1] !== 'ertaga' && ctx.match[1] !== 'indinga') {
         return ctx.replyWithHTML('Tushunmadim')
     }
     if (menu.filter(el => el.name === meal).length === 0) {
-        return ctx.replyWithHTML('bunday ovqat yoqqo')
+        return ctx.replyWithHTML('Menyuda bunday ovqat mavjud emas')
     }
     if (ctx.match[1] === 'default') {
         await User.updateOne({tgId: userId}, {defaultMeal: meal});
-        return ctx.replyWithHTML('yozib qoydim')
+        return ctx.replyWithHTML(`Yozib qo'ydim`)
     }
 
     let daysForward = 0
@@ -166,8 +168,21 @@ bot.hears(/Menga ([\w'-]+) (.+)/, async (ctx) => {
     }
     return ctx.replyWithHTML(`yozib qoydim`)
 })
-
-bot.hears('start cron', async (ctx) => {
+bot.hears(/non (-?\d+)/i, async (ctx) => {
+    const count = ctx.match[1]
+    if (count > 0 && count < 10) {
+        const updated = await Addon.updateOne({name: 'Non'}, {count})
+        console.log(updated)
+        return ctx.reply(`Non ${count}ta bo'ldi`)
+    }
+})
+bot.command('users', async (ctx) => {
+    if (isAdmin(ctx)) {
+        const users = await User.find()
+        return ctx.reply(JSON.stringify(users, null, 2))
+    } else ctx.reply('you can`t do it')
+})
+bot.hears(/start cron/i, async (ctx) => {
     if (isAdmin(ctx)) {
         cron.schedule('0 0 9 * * *', () => sendMenu(ctx, false))
         cron.schedule('0 30 10 * * *', () => notifyUsers(ctx))
