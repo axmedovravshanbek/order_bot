@@ -27,4 +27,3 @@ module.exports = {
     Meal: model('Meal', Meal),
     Addon: model('Addon', Addon),
 }
-

@@ -3,22 +3,41 @@ const mongoose = require('mongoose');
 const {Telegraf} = require('telegraf')
 const {Order, Meal, User, Addon} = require('./models');
 const cron = require('node-cron')
+const duties = require('./duties.json')
 
 const bot = new Telegraf(process.env.BOT_TOKEN)
+
+cron.schedule('0 0 9 * * 1-5', () => sendMenu())
+cron.schedule('0 30 10 * * 1-5', () => notifyUsers())
+cron.schedule('0 45 10 * * 1-5', () => stopMenu())
 
 const isAdmin = (ctx) => {
     return ctx.update.message.from.id.toString() === process.env.DEV_ID.toString()
 }
-const sendMenu = async (ctx) => {
+
+const getDuties = () => {
+    const startDate = new Date('December 20, 2022')
+    const endDate = new Date()
+    let count = 0;
+    const curDate = new Date(startDate.getTime());
+    while (curDate <= endDate) {
+        const dayOfWeek = curDate.getDay();
+        console.log(curDate.toDateString() + ((dayOfWeek !== 0 && dayOfWeek !== 6) ? ' true' : ' false'))
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) count++;
+        curDate.setDate(curDate.getDate() + 1);
+    }
+    return duties[count % 6]
+}
+const sendMenu = async () => {
     const menu = await Meal.find()
-    return ctx.telegram.sendPoll(
+    return bot.telegram.sendPoll(
         process.env.GROUP_ID,
         'Ovqat tanlaymiz',
         menu.map(({name}) => name.split('_').join(' ')),
         {is_anonymous: false}
     )
 }
-const stopMenu = async (ctx) => {
+const stopMenu = async () => {
     const today = new Date().toDateString()
 
     const allUsers = await User.find()
@@ -47,7 +66,7 @@ const stopMenu = async (ctx) => {
             }
         }
     ]);
-    return ctx.telegram.sendMessage(
+    bot.telegram.sendMessage(
         process.env.GROUP_ID,
         // return ctx.replyWithHTML(
         'Assalom alaykum <a href="tg://user?id=' + process.env.COOK_ID + '">' + process.env.COOK_NAME + '</a>' +
@@ -56,15 +75,21 @@ const stopMenu = async (ctx) => {
             `${name}: ${count} ta`).join('\n'),
         {parse_mode: "HTML"}
     )
+    return bot.telegram.sendMessage(
+        process.env.GROUP_ID,
+        `${getDuties().map(({name, tgId}) => `<a href="tg://user?id=${tgId}">${name}</a>`).join(', ')}\nSizlar navbatchisizlar`,
+        {parse_mode: "HTML"}
+    )
+
 }
-const notifyUsers = async (ctx) => {
+const notifyUsers = async () => {
     const today = new Date().toDateString()
     const allUsers = await User.find()
     const orders = [...await Order.find({date: today})].map(el => el.user)
     const didnt = allUsers.filter(el => !orders.includes(el.tgId))
 
     if (didnt.length > 0)
-        return ctx.telegram.sendMessage(
+        return bot.telegram.sendMessage(
             process.env.GROUP_ID,
             // return ctx.replyWithHTML(
             `Ovqat tanlang, 15 minut qoldi\n\n${
@@ -83,31 +108,33 @@ bot.start((ctx) => {
     )
 })
 bot.on('poll_answer', async (ctx) => {
-    const userId = ctx.update.poll_answer.user.id
-    const user = await User.find({tgId: userId})
-    if (!user) return
+    try {
+        const userId = ctx.update.poll_answer.user.id
+        const user = await User.find({tgId: userId})
+        if (!user) return
+        // if (!ctx.update.poll_answer.option_ids[0]) console.log(process.env.DEV_ID, 'ERROR option_ids[0] \n' + JSON.stringify(ctx, null, 2))
 
-    const menu = await Meal.find()
-    const today = new Date().toDateString()
-    const ordered = await Order.findOne({date: today, user: userId});
+        const menu = await Meal.find()
+        const today = new Date().toDateString()
+        const ordered = await Order.findOne({date: today, user: userId});
 
-    if (!ordered) {
-        await Order({
-            date: today,
-            order: menu[ctx.update.poll_answer.option_ids[0]].name.split('_').join(' '),
-            user: userId
-        }).save();
-    } else if (ctx.update.poll_answer.option_ids.length > 0) {
-        await Order.updateOne({
-            date: today,
-            user: userId
-        }, {order: menu[ctx.update.poll_answer.option_ids[0]].name.split('_').join(' ')})
-    } else if (ctx.update.poll_answer.option_ids.length === 0) {
-        await Order.deleteOne({date: today, user: userId});
+        if (!ordered) {
+            await Order({
+                date: today,
+                order: menu[ctx.update.poll_answer.option_ids[0]].name.split('_').join(' '),
+                user: userId
+            }).save();
+        } else if (ctx.update.poll_answer.option_ids.length > 0) {
+            await Order.updateOne({
+                date: today,
+                user: userId
+            }, {order: menu[ctx.update.poll_answer.option_ids[0]].name.split('_').join(' ')})
+        } else if (ctx.update.poll_answer.option_ids.length === 0) {
+            await Order.deleteOne({date: today, user: userId});
+        }
+    } catch (e) {
+        console.log(e)
     }
-    /*  const x = await Order.find()
-      return ctx.telegram.sendMessage('740160989',
-          x.map(({user, order, date}) => `${user}, ${order}, ${date}`).join('\n'))*/
 })
 bot.command('menu', async (ctx) => {
     if (isAdmin(ctx)) {
@@ -129,8 +156,15 @@ bot.command('today', async (ctx) => {
         'today:\n\n' + x.map(({user, order}, i) =>
             `${i + 1}.  <a href="tg://user?id=${user}">${user}</a> - ${order}`).join('\n'))
 })
+bot.command('kim', async (ctx) => {
+    if (isAdmin(ctx)) {
+        return ctx.replyWithHTML(
+            `${getDuties().map(({name, tgId}) => `<a href="tg://user?id=${tgId}">${name}</a>`).join(', ')}\nSizlar navbatchisizlar`
+        )
+    } else ctx.reply('you can`t do it')
+})
+
 bot.hears(/menga ([\w'-]+) (.+)/i, async (ctx) => {
-    console.log(ctx.match)
     const userId = ctx.update.message.from.id
     const meal = ctx.match[2].toLowerCase().split('').map((ch, id) => !id ? ch.toUpperCase() : ch).join('')
     const menu = await Meal.find()
@@ -171,8 +205,7 @@ bot.hears(/menga ([\w'-]+) (.+)/i, async (ctx) => {
 bot.hears(/non (-?\d+)/i, async (ctx) => {
     const count = ctx.match[1]
     if (count > 0 && count < 10) {
-        const updated = await Addon.updateOne({name: 'Non'}, {count})
-        console.log(updated)
+        await Addon.updateOne({name: 'Non'}, {count})
         return ctx.reply(`Non ${count}ta bo'ldi`)
     }
 })
@@ -182,20 +215,17 @@ bot.command('users', async (ctx) => {
         return ctx.reply(JSON.stringify(users, null, 2))
     } else ctx.reply('you can`t do it')
 })
-bot.hears(/start cron/i, async (ctx) => {
-    if (isAdmin(ctx)) {
-        cron.schedule('0 0 9 * * *', () => sendMenu(ctx, false))
-        cron.schedule('0 30 10 * * *', () => notifyUsers(ctx))
-        cron.schedule('0 45 10 * * *', () => stopMenu(ctx))
-        return ctx.reply('ok')
-    } else ctx.reply('you can`t do it')
-})
 
 const start = async () => {
     try {
         await mongoose.connect(process.env.MONGO_URL);
         console.log('database connected');
         await bot.launch().then(() => console.log('bot started'))
+        /* await Order({
+             date: 'Fri Dec 16 2022',
+             order: 'Osh',
+             user: '574307557'
+         }).save();*/
     } catch (e) {
         console.log(e)
     }
@@ -204,4 +234,3 @@ start();
 
 process.once('SIGINT', () => bot.stop('SIGINT'))
 process.once('SIGTERM', () => bot.stop('SIGTERM'))
-
