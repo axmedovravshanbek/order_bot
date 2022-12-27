@@ -22,7 +22,6 @@ const getDuties = () => {
     const curDate = new Date(startDate.getTime());
     while (curDate <= endDate) {
         const dayOfWeek = curDate.getDay();
-        console.log(curDate.toDateString() + ((dayOfWeek !== 0 && dayOfWeek !== 6) ? ' true' : ' false'))
         if (dayOfWeek !== 0 && dayOfWeek !== 6) count++;
         curDate.setDate(curDate.getDate() + 1);
     }
@@ -112,7 +111,6 @@ bot.on('poll_answer', async (ctx) => {
         const userId = ctx.update.poll_answer.user.id
         const user = await User.find({tgId: userId})
         if (!user) return
-        // if (!ctx.update.poll_answer.option_ids[0]) console.log(process.env.DEV_ID, 'ERROR option_ids[0] \n' + JSON.stringify(ctx, null, 2))
 
         const menu = await Meal.find()
         const today = new Date().toDateString()
@@ -221,11 +219,6 @@ const start = async () => {
         await mongoose.connect(process.env.MONGO_URL);
         console.log('database connected');
         await bot.launch().then(() => console.log('bot started'))
-        /* await Order({
-             date: 'Fri Dec 16 2022',
-             order: 'Osh',
-             user: '574307557'
-         }).save();*/
     } catch (e) {
         console.log(e)
     }
