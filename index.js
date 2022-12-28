@@ -55,7 +55,7 @@ const stopMenu = async () => {
     }
     const orders = await Order.aggregate([
         {
-            $match: {"date": today}
+            $match: {$and: [{"date": today}, {order: {$ne: 'nothing'}}]}
         },
         {
             $group: {
@@ -65,9 +65,8 @@ const stopMenu = async () => {
             }
         }
     ]);
-    bot.telegram.sendMessage(
+    await bot.telegram.sendMessage(
         process.env.GROUP_ID,
-        // return ctx.replyWithHTML(
         'Assalom alaykum <a href="tg://user?id=' + process.env.COOK_ID + '">' + process.env.COOK_NAME + '</a>' +
         '\n\nBugunga\n\n' +
         [...orders, ...addons].map(({name, count}) =>
@@ -109,7 +108,7 @@ bot.start((ctx) => {
 bot.on('poll_answer', async (ctx) => {
     try {
         const userId = ctx.update.poll_answer.user.id
-        const user = await User.find({tgId: userId})
+        const user = await User.findOne({tgId: userId})
         if (!user) return
 
         const menu = await Meal.find()
@@ -122,6 +121,8 @@ bot.on('poll_answer', async (ctx) => {
                 order: menu[ctx.update.poll_answer.option_ids[0]].name.split('_').join(' '),
                 user: userId
             }).save();
+        } else if (ordered.order === 'nothing') {
+            return console.log(user.name + ' attempts to eat');
         } else if (ctx.update.poll_answer.option_ids.length > 0) {
             await Order.updateOne({
                 date: today,
@@ -204,6 +205,26 @@ bot.hears(/menga ([\w'-]+) (.+)/i, async (ctx) => {
         }).save();
     } else {
         await Order.updateOne({date, user: userId}, {order: meal})
+    }
+    return ctx.replyWithHTML(`yozib qoydim`)
+})
+bot.hears(/(.+) bugun yemaydi/i, async (ctx) => {
+    const user = await User.findOne({name: ctx.match[1]});
+    if (!user) return ctx.replyWithHTML('Tushunmadim, kim?')
+
+    const ordered = await Order.findOne({date: new Date().toDateString(), user: ctx.match[1]});
+
+    if (!ordered) {
+        await Order({
+            date: new Date().toDateString(),
+            order: 'nothing',
+            user: user.tgId
+        }).save();
+    } else {
+        await Order.updateOne({
+            date: new Date().toDateString(),
+            user: user.tgId
+        }, {order: 'nothing'})
     }
     return ctx.replyWithHTML(`yozib qoydim`)
 })
