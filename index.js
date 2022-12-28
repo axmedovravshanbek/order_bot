@@ -134,6 +134,7 @@ bot.on('poll_answer', async (ctx) => {
         console.log(e)
     }
 })
+
 bot.command('menu', async (ctx) => {
     if (isAdmin(ctx)) {
         await sendMenu(ctx, false)
@@ -154,11 +155,17 @@ bot.command('today', async (ctx) => {
         'today:\n\n' + x.map(({user, order}, i) =>
             `${i + 1}.  <a href="tg://user?id=${user}">${user}</a> - ${order}`).join('\n'))
 })
-bot.command('kim', async (ctx) => {
+bot.command('duty', async (ctx) => {
     if (isAdmin(ctx)) {
         return ctx.replyWithHTML(
             `${getDuties().map(({name, tgId}) => `<a href="tg://user?id=${tgId}">${name}</a>`).join(', ')}\nSizlar navbatchisizlar`
         )
+    } else ctx.reply('you can`t do it')
+})
+bot.command('users', async (ctx) => {
+    if (isAdmin(ctx)) {
+        const users = await User.find()
+        return ctx.reply(JSON.stringify(users, null, 4))
     } else ctx.reply('you can`t do it')
 })
 
@@ -206,12 +213,6 @@ bot.hears(/non (-?\d+)/i, async (ctx) => {
         await Addon.updateOne({name: 'Non'}, {count})
         return ctx.reply(`Non ${count}ta bo'ldi`)
     }
-})
-bot.command('users', async (ctx) => {
-    if (isAdmin(ctx)) {
-        const users = await User.find()
-        return ctx.reply(JSON.stringify(users, null, 2))
-    } else ctx.reply('you can`t do it')
 })
 
 const start = async () => {
