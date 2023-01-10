@@ -16,7 +16,7 @@ const isAdmin = (ctx) => {
 }
 
 const getDuties = () => {
-    const startDate = new Date('December 20, 2022')
+    const startDate = new Date('January 2, 2022')
     const endDate = new Date()
     let count = 0;
     const curDate = new Date(startDate.getTime());
@@ -151,10 +151,33 @@ bot.command('notify', async (ctx) => {
 })
 bot.command('today', async (ctx) => {
     const today = new Date().toDateString()
-    const x = await Order.find({date: today})
-    return ctx.replyWithHTML(
-        'today:\n\n' + x.map(({user, order}, i) =>
-            `${i + 1}.  <a href="tg://user?id=${user}">${user}</a> - ${order}`).join('\n'))
+    let arg = [
+        {
+            $match: {date: today}
+        },
+        {
+            $lookup: {
+                from: 'users',
+                localField: 'user',
+                foreignField: 'tgId',
+                as: 'userInfo'
+            }
+        },
+        {$unwind: '$userInfo'},
+        {
+            $project: {
+                order: 1,
+                date: 1,
+                userName: '$userInfo.name',
+                userTgId: '$userInfo.tgId',
+                userDefaultMeal: '$userInfo.defaultMeal',
+            }
+        }
+    ]
+    const x = await Order.aggregate(arg)
+    return ctx.replyWithHTML(`<pre>${x.map(({userName, userDefaultMeal, order}, i) => (
+        `${String(i + 1).padEnd(2, ' ')} | ${userName.padEnd(15, ' ')} | ${(order === 'nothing' ? '❌' : order).padEnd(15, ' ')}`
+    )).join('\n')}</pre>`)
 })
 bot.command('duty', async (ctx) => {
     if (isAdmin(ctx)) {
@@ -166,7 +189,9 @@ bot.command('duty', async (ctx) => {
 bot.command('users', async (ctx) => {
     if (isAdmin(ctx)) {
         const users = await User.find()
-        return ctx.reply(JSON.stringify(users, null, 4))
+        return ctx.replyWithHTML(`<pre>${users.map(({name, tgId, defaultMeal}, i) => (
+            `${String(i + 1).padEnd(2, ' ')} | ${name.padEnd(15, ' ')}|${tgId.padEnd(15, ' ')} | ${defaultMeal.padEnd(15, ' ')}`
+        )).join('\n')}</pre>`)
     } else ctx.reply('you can`t do it')
 })
 
@@ -212,7 +237,7 @@ bot.hears(/(.+) bugun yemaydi/i, async (ctx) => {
     const user = await User.findOne({name: ctx.match[1]});
     if (!user) return ctx.replyWithHTML('Tushunmadim, kim?')
 
-    const ordered = await Order.findOne({date: new Date().toDateString(), user: ctx.match[1]});
+    const ordered = await Order.findOne({date: new Date().toDateString(), user: user.tgId});
 
     if (!ordered) {
         await Order({
@@ -228,11 +253,12 @@ bot.hears(/(.+) bugun yemaydi/i, async (ctx) => {
     }
     return ctx.replyWithHTML(`yozib qoydim`)
 })
-bot.hears(/non (-?\d+)/i, async (ctx) => {
-    const count = ctx.match[1]
-    if (count > 0 && count < 10) {
-        await Addon.updateOne({name: 'Non'}, {count})
-        return ctx.reply(`Non ${count}ta bo'ldi`)
+bot.hears(/bugun (.+) (-?\d+)/i, async (ctx) => {
+    const addon = ctx.match[1].toLowerCase().split('').map((ch, id) => !id ? ch.toUpperCase() : ch).join('')
+    const count = ctx.match[2]
+    if (count >= 0 && count < 10) {
+        const x = await Addon.updateOne({name: addon}, {count})
+        return ctx.reply(x.matchedCount?`${addon} ${count}ta bo'ldi`:'tushunmadim')
     }
 })
 
@@ -245,7 +271,7 @@ const start = async () => {
         console.log(e)
     }
 };
-start();
+start()
 
 process.once('SIGINT', () => bot.stop('SIGINT'))
 process.once('SIGTERM', () => bot.stop('SIGTERM'))
